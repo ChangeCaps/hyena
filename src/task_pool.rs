@@ -5,6 +5,7 @@ use futures_lite::future;
 
 use crate::Task;
 
+/// Builder for a [`TaskPool`].
 #[must_use = "TaskPoolBuilder does nothing unless you call `build`"]
 #[derive(Clone, Debug, Default)]
 pub struct TaskPoolBuilder {
@@ -14,6 +15,7 @@ pub struct TaskPoolBuilder {
 }
 
 impl TaskPoolBuilder {
+    /// Creates a new [`TaskPoolBuilder`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -40,6 +42,7 @@ impl TaskPoolBuilder {
         self
     }
 
+    /// Builds the [`TaskPool`].
     #[must_use]
     pub fn build(self) -> io::Result<TaskPool> {
         TaskPool::new_internal(
@@ -71,6 +74,7 @@ impl Drop for TaskPoolInner {
     }
 }
 
+/// A pool of threads for running [`Task`]s.
 #[derive(Clone, Debug)]
 pub struct TaskPool {
     executor: Arc<Executor<'static>>,
@@ -91,7 +95,7 @@ impl TaskPool {
     ///
     /// # Examples
     /// ```rust
-    /// #use hyena::TaskPool;
+    /// # use hyena::TaskPool;
     /// let task_pool = TaskPool::builder()
     ///     .num_threads(4)
     ///     .stack_size(1024 * 1024)

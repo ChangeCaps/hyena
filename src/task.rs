@@ -16,6 +16,7 @@ pub struct Task<T> {
 }
 
 impl<T> Task<T> {
+    /// Creates a new task from the wrapped task.
     #[inline]
     pub fn new(inner: async_executor::Task<T>) -> Self {
         Self { inner }

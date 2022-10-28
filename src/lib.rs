@@ -1,11 +1,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
-//! # Hyena
 //! Hyena is a simple, fast, and safe async task pool.
 //!
 //! # Examples
 //! ```rust
-//! #use hyena::TaskPool;
+//! # use hyena::TaskPool;
 //! // create a new task pool
 //! let task_pool = TaskPool::new().unwrap();
 //!
@@ -16,7 +15,7 @@
 //! });
 //!
 //! // wait for the task to complete
-//! let result = task_pool.block_on(task);
+//! let result = task.block_on();
 //! assert_eq!(result, 4);
 //! ```
 
