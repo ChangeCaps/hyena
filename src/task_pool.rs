@@ -18,17 +18,25 @@ impl TaskPoolBuilder {
         Self::default()
     }
 
+    /// Sets the number of threads to use.
+    ///
+    /// If not set, the number of threads will be equal to the number of logical cores.
     pub fn num_threads(mut self, num_threads: usize) -> Self {
         self.num_threads = Some(num_threads);
         self
     }
+
+    /// Sets the stack size of each thread.
     pub fn stack_size(mut self, stack_size: usize) -> Self {
         self.stack_size = Some(stack_size);
         self
     }
 
-    pub fn thread_name(mut self, thread_name: String) -> Self {
-        self.thread_name = Some(thread_name);
+    /// Sets the name of each thread.
+    ///
+    /// The name will be suffixed with a number.
+    pub fn thread_name(mut self, thread_name: impl Into<String>) -> Self {
+        self.thread_name = Some(thread_name.into());
         self
     }
 
@@ -74,10 +82,23 @@ impl TaskPool {
         static LOCAL_EXECUTOR: LocalExecutor<'static> = LocalExecutor::new();
     }
 
+    /// Creates a new [`TaskPool`] using default settings.
     pub fn new() -> io::Result<Self> {
         TaskPoolBuilder::new().build()
     }
 
+    /// Creates a new [`TaskPoolBuilder`].
+    ///
+    /// # Examples
+    /// ```rust
+    /// #use hyena::TaskPool;
+    /// let task_pool = TaskPool::builder()
+    ///     .num_threads(4)
+    ///     .stack_size(1024 * 1024)
+    ///     .thread_name("my-task-pool")
+    ///     .build()
+    ///     .expect("Failed to create task pool");
+    /// ```
     pub fn builder() -> TaskPoolBuilder {
         TaskPoolBuilder::new()
     }
@@ -125,12 +146,13 @@ impl TaskPool {
         })
     }
 
+    /// Returns the number of threads in the pool.
     #[inline]
     pub fn thread_count(&self) -> usize {
         self.inner.threads.len()
     }
 
-    /// Spawns a task in the thread pool.
+    /// Spawns a [`Task`] in the thread pool.
     #[inline]
     pub fn spawn<T>(&self, future: impl Future<Output = T> + Send + 'static) -> Task<T>
     where
@@ -139,7 +161,7 @@ impl TaskPool {
         Task::new(self.executor.spawn(future))
     }
 
-    /// Spawns a task in the thread local executor.
+    /// Spawns a [`Task`] in the thread local executor.
     #[inline]
     pub fn spawn_local<T>(&self, future: impl Future<Output = T> + Send + 'static) -> Task<T>
     where
