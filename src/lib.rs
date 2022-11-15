@@ -1,4 +1,4 @@
-#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(unsafe_op_in_unsafe_fn, missing_docs)]
 
 //! Hyena is a simple, fast, and safe async task pool.
 //!

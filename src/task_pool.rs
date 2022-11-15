@@ -2,7 +2,9 @@ use std::{future::Future, io, marker::PhantomData, mem, pin::Pin, sync::Arc, thr
 
 use async_executor::{Executor, LocalExecutor};
 use concurrent_queue::ConcurrentQueue;
+use event_listener::Event;
 use futures_lite::{future, pin};
+use once_cell::sync::OnceCell;
 
 use crate::Task;
 
@@ -57,12 +59,12 @@ impl TaskPoolBuilder {
 #[derive(Debug)]
 struct TaskPoolInner {
     threads: Vec<JoinHandle<()>>,
-    shutdown: async_channel::Sender<()>,
+    shutdown: Event,
 }
 
 impl Drop for TaskPoolInner {
     fn drop(&mut self) {
-        self.shutdown.close();
+        self.shutdown.notify(usize::MAX);
 
         let panicking = std::thread::panicking();
         for thread in self.threads.drain(..) {
@@ -92,6 +94,16 @@ impl TaskPool {
         TaskPoolBuilder::new().build()
     }
 
+    /// Gets a reference to the global [`TaskPool`].
+    ///
+    /// # Panics
+    /// Panics if the global [`TaskPool`] fails initialization, this should only happen if spawning
+    /// the thread pool fails.
+    pub fn global() -> &'static Self {
+        static GLOBAL_POOL: OnceCell<TaskPool> = OnceCell::new();
+        GLOBAL_POOL.get_or_init(|| TaskPool::new().expect("Failed to create global task pool."))
+    }
+
     /// Creates a new [`TaskPoolBuilder`].
     ///
     /// # Examples
@@ -113,7 +125,7 @@ impl TaskPool {
         stack_size: Option<usize>,
         thread_name: Option<&str>,
     ) -> io::Result<Self> {
-        let (shutdown, shutdown_rx) = async_channel::bounded(1);
+        let shutdown = Event::new();
 
         let executor = Arc::new(Executor::new());
 
@@ -122,7 +134,7 @@ impl TaskPool {
         let threads: Vec<_> = (0..num_threads)
             .map(|i| {
                 let executor = executor.clone();
-                let shutdown_rx = shutdown_rx.clone();
+                let shutdown = shutdown.listen();
                 let thread_name = if let Some(thread_name) = thread_name {
                     format!("{}({})", thread_name, i)
                 } else {
@@ -136,8 +148,8 @@ impl TaskPool {
                 }
 
                 thread_builder.spawn(move || {
-                    let fut = executor.run(shutdown_rx.recv());
-                    future::block_on(fut).unwrap_err();
+                    let fut = executor.run(shutdown);
+                    future::block_on(fut);
                 })
             })
             .try_fold(Vec::new(), |mut threads, thread| {
@@ -254,6 +266,9 @@ impl TaskPool {
     }
 }
 
+/// Allow spawning [`Task`]s on the thread pool that aren't `'static`.
+///
+/// For more information, see [`TaskPool::scope`].
 #[derive(Debug)]
 pub struct Scope<'scope, 'env: 'scope, T> {
     executor: &'scope Executor<'scope>,
