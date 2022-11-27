@@ -1,6 +1,7 @@
-use std::{future::Future, io, marker::PhantomData, mem, pin::Pin, sync::Arc, thread::JoinHandle};
+use std::{future::Future, io, marker::PhantomData, mem, sync::Arc, thread::JoinHandle};
 
 use async_executor::{Executor, LocalExecutor};
+use async_task::FallibleTask;
 use concurrent_queue::ConcurrentQueue;
 use event_listener::Event;
 use futures_lite::{future, pin};
@@ -203,21 +204,19 @@ impl TaskPool {
         // transmute the lifetimes to 'env here to appease the compiler as it is unable to validate safety.
         let executor: &async_executor::Executor = &self.executor;
         let executor: &'env async_executor::Executor = unsafe { mem::transmute(executor) };
-
         let task_scope_executor = &async_executor::Executor::default();
         let task_scope_executor: &'env async_executor::Executor =
             unsafe { mem::transmute(task_scope_executor) };
-
-        let spawned: ConcurrentQueue<async_executor::Task<T>> = ConcurrentQueue::unbounded();
-        let spawned_ref: &'env ConcurrentQueue<async_executor::Task<T>> =
+        let spawned: ConcurrentQueue<FallibleTask<T>> = ConcurrentQueue::unbounded();
+        let spawned_ref: &'env ConcurrentQueue<FallibleTask<T>> =
             unsafe { mem::transmute(&spawned) };
 
         let scope = Scope {
             executor,
             task_scope_executor,
             spawned: spawned_ref,
-            _scope: PhantomData,
-            _env: PhantomData,
+            scope: PhantomData,
+            env: PhantomData,
         };
 
         let scope_ref: &'env Scope<'_, 'env, T> = unsafe { mem::transmute(&scope) };
@@ -227,10 +226,10 @@ impl TaskPool {
         if spawned.is_empty() {
             Vec::new()
         } else {
-            let get_results = async move {
-                let mut results = Vec::with_capacity(spawned.len());
-                while let Ok(task) = spawned.pop() {
-                    results.push(task.await);
+            let get_results = async {
+                let mut results = Vec::with_capacity(spawned_ref.len());
+                while let Ok(task) = spawned_ref.pop() {
+                    results.push(task.await.unwrap());
                 }
 
                 results
@@ -239,28 +238,16 @@ impl TaskPool {
             // Pin the futures on the stack.
             pin!(get_results);
 
-            // SAFETY: This function blocks until all futures complete, so we do not read/write
-            // the data from futures outside of the 'scope lifetime. However,
-            // rust has no way of knowing this so we must convert to 'static
-            // here to appease the compiler as it is unable to validate safety.
-            let get_results: Pin<&mut (dyn Future<Output = Vec<T>> + 'static + Send)> = get_results;
-            let get_results: Pin<&'static mut (dyn Future<Output = Vec<T>> + 'static + Send)> =
-                unsafe { mem::transmute(get_results) };
-
-            // The thread that calls scope() will participate in driving tasks in the pool
-            // forward until the tasks that are spawned by this scope() call
-            // complete. (If the caller of scope() happens to be a thread in
-            // this thread pool, and we only have one thread in the pool, then
-            // simply calling future::block_on(spawned) would deadlock.)
-            let mut spawned = task_scope_executor.spawn(get_results);
-
             loop {
-                if let Some(result) = future::block_on(future::poll_once(&mut spawned)) {
+                if let Some(result) = future::block_on(future::poll_once(&mut get_results)) {
                     break result;
                 };
 
-                self.executor.try_tick();
-                task_scope_executor.try_tick();
+                std::panic::catch_unwind(|| {
+                    executor.try_tick();
+                    task_scope_executor.try_tick();
+                })
+                .ok();
             }
         }
     }
@@ -273,9 +260,9 @@ impl TaskPool {
 pub struct Scope<'scope, 'env: 'scope, T> {
     executor: &'scope Executor<'scope>,
     task_scope_executor: &'scope Executor<'scope>,
-    spawned: &'scope ConcurrentQueue<async_executor::Task<T>>,
-    _scope: PhantomData<&'scope mut &'scope ()>,
-    _env: PhantomData<&'env mut &'env ()>,
+    spawned: &'scope ConcurrentQueue<FallibleTask<T>>,
+    scope: PhantomData<&'scope mut &'scope ()>,
+    env: PhantomData<&'env mut &'env ()>,
 }
 
 impl<'scope, 'env, T> Scope<'scope, 'env, T>
@@ -285,7 +272,7 @@ where
     /// Spawns a future onto the thread pool.
     #[inline]
     pub fn spawn(&self, future: impl Future<Output = T> + Send + 'scope) {
-        let task = self.executor.spawn(future);
+        let task = self.executor.spawn(future).fallible();
 
         self.spawned.push(task).unwrap();
     }
@@ -293,7 +280,7 @@ where
     /// Spawns a future onto the thread the scope is run on.
     #[inline]
     pub fn spawn_on_scope(&self, future: impl Future<Output = T> + Send + 'scope) {
-        let task = self.task_scope_executor.spawn(future);
+        let task = self.task_scope_executor.spawn(future).fallible();
 
         self.spawned.push(task).unwrap();
     }

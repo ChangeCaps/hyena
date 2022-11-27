@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 async-executor = "1.4"
+async-task = "4.3"
 concurrent-queue = "1.2"
 event-listener = "2.5"
 futures-lite = "1.12"
