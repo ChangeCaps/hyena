@@ -181,9 +181,9 @@ impl TaskPool {
 
     /// Spawns a [`Task`] in the thread local executor.
     #[inline]
-    pub fn spawn_local<T>(&self, future: impl Future<Output = T> + Send + 'static) -> Task<T>
+    pub fn spawn_local<T>(&self, future: impl Future<Output = T> + 'static) -> Task<T>
     where
-        T: Send + 'static,
+        T: 'static,
     {
         Task::new(Self::LOCAL_EXECUTOR.with(|executor| executor.spawn(future)))
     }
