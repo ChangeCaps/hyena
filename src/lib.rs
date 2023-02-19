@@ -22,6 +22,7 @@
 mod task;
 mod task_pool;
 
+use futures_lite::future;
 pub use task::*;
 pub use task_pool::*;
 
@@ -53,4 +54,12 @@ where
     T: Send + 'static,
 {
     TaskPool::global().scope(f)
+}
+
+/// Blocks the current thread until the `future` completes.
+///
+/// This function is just a wrapper around [`futures_lite::future::block_on`].
+#[inline]
+pub fn block_on<T>(future: impl Future<Output = T>) -> T {
+    future::block_on(future)
 }
